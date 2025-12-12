@@ -1,0 +1,382 @@
+-- DRAG SETTINGS
+local MAX_DISTANCE = 20
+local DRAG_FORCE = 200
+
+local player = game.Players.LocalPlayer
+local mouse = player:GetMouse()
+local runService = game:GetService("RunService")
+
+local dragging = false
+local draggedObject = nil
+local bodyPos = nil
+local cam = workspace.CurrentCamera
+
+local highlights = {}
+
+--------------------------------------------------
+-- Billboard GUI
+--------------------------------------------------
+local function createBillboard(part)
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "DragNameBillboard"
+    billboard.Parent = part
+    billboard.Size = UDim2.new(0, 100, 0, 20)
+    billboard.AlwaysOnTop = true
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+
+    local text = Instance.new("TextLabel")
+    text.Parent = billboard
+    text.Size = UDim2.new(1, 0, 1, 0)
+    text.BackgroundTransparency = 1
+    text.Text = part.Name
+    text.TextColor3 = Color3.new(1, 1, 1)
+    text.TextStrokeTransparency = 0
+    text.Font = Enum.Font.GothamBold
+    text.TextScaled = true
+
+    return billboard
+end
+
+local function removeBillboard(part)
+    if part and part:FindFirstChild("DragNameBillboard") then
+        part.DragNameBillboard:Destroy()
+    end
+end
+
+--------------------------------------------------
+-- Highlight
+--------------------------------------------------
+local function createHighlight(target)
+    local h = Instance.new("Highlight")
+    h.FillTransparency = 1
+    h.OutlineTransparency = 0
+    h.OutlineColor = Color3.new(1,1,1)
+    h.Parent = target
+    highlights[target] = h
+end
+
+local function removeHighlight(target)
+    if highlights[target] then
+        highlights[target]:Destroy()
+        highlights[target] = nil
+    end
+end
+
+local function removeAllHighlights()
+    for obj, h in pairs(highlights) do
+        if h then h:Destroy() end
+    end
+    highlights = {}
+end
+
+--------------------------------------------------
+-- Character Detection
+--------------------------------------------------
+local function getCharacterFromPart(part)
+    if not part then return nil end
+    local model = part:FindFirstAncestorOfClass("Model")
+    if not model then return nil end
+
+    local humanoid = model:FindFirstChildWhichIsA("Humanoid")
+    local root = model:FindFirstChild("HumanoidRootPart")
+        or model:FindFirstChild("Torso")
+        or model:FindFirstChild("UpperTorso")
+
+    if humanoid and root then
+        return model, humanoid, root
+    end
+
+    return nil
+end
+
+local function isRagdolled(humanoid, model)
+    if humanoid.Health <= 0 then return true end
+    local rag = model:FindFirstChild("Ragdolled")
+    return rag and rag.Value
+end
+
+--------------------------------------------------
+-- Weld Detection
+--------------------------------------------------
+local function isAssemblyWelded(rootPart)
+    local character = rootPart:FindFirstAncestorOfClass("Model")
+    if character and character:FindFirstChildWhichIsA("Humanoid") then
+        return false
+    end
+
+    local checked = {}
+    local queue = {rootPart}
+
+    while #queue > 0 do
+        local part = table.remove(queue, 1)
+        if not checked[part] and part:IsA("BasePart") then
+            checked[part] = true
+
+            for _, obj in ipairs(part:GetChildren()) do
+                if obj:IsA("Weld") or obj:IsA("WeldConstraint") then
+                    return true
+                end
+            end
+
+            for _, conn in ipairs(part:GetConnectedParts()) do
+                if not checked[conn] then
+                    table.insert(queue, conn)
+                end
+            end
+        end
+    end
+
+    return false
+end
+
+--------------------------------------------------
+-- BOAT + WELD UI
+--------------------------------------------------
+local Boat = workspace:FindFirstChild("Boat")
+local Hull = Boat and Boat:FindFirstChild("Hull")
+
+local WeldSound = Hull and Hull:FindFirstChild("WeldSound")
+local UnweldSound = Hull and Hull:FindFirstChild("UnweldSound")
+
+local activeWelds = {}
+local dragTouchingHull = false
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "WeldUI"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local weldButton = Instance.new("TextButton")
+weldButton.Parent = screenGui
+weldButton.AnchorPoint = Vector2.new(1, 0.5)
+weldButton.Position = UDim2.new(1, -30, 0.5, 0)
+weldButton.Size = UDim2.new(0, 90, 0, 90)
+weldButton.Text = "Weld"
+weldButton.BackgroundColor3 = Color3.fromRGB(20,20,20)
+weldButton.BackgroundTransparency = 0.35
+weldButton.TextColor3 = Color3.new(1,1,1)
+weldButton.Font = Enum.Font.GothamBold
+weldButton.TextScaled = true
+weldButton.Visible = false
+weldButton.BorderSizePixel = 0
+
+Instance.new("UICorner", weldButton).CornerRadius = UDim.new(1,0)
+
+local function weldToHull(part)
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = part
+    weld.Part1 = Hull
+    weld.Parent = part
+
+    activeWelds[part] = weld
+
+    if WeldSound then WeldSound:Play() end
+end
+
+local function unweld(part)
+    if activeWelds[part] then
+        activeWelds[part]:Destroy()
+        activeWelds[part] = nil
+
+        if UnweldSound then UnweldSound:Play() end
+    end
+end
+
+--------------------------------------------------
+-- Touch Detection for showing button
+--------------------------------------------------
+local function hookTouchDetection(part)
+    if not part:IsA("BasePart") then return end
+    
+    -- Store original connections so we can disconnect them later
+    local connections = {}
+    
+    connections.touch = part.Touched:Connect(function(hit)
+        if dragging and hit == Hull then
+            dragTouchingHull = true
+            weldButton.Visible = true
+            weldButton.Text = activeWelds[part] and "Unweld" or "Weld"
+        end
+    end)
+
+    connections.touchEnd = part.TouchEnded:Connect(function(hit)
+        if hit == Hull then
+            dragTouchingHull = false
+            weldButton.Visible = false
+        end
+    end)
+    
+    return connections
+end
+
+local partConnections = {}
+
+--------------------------------------------------
+-- Weld Button
+--------------------------------------------------
+weldButton.MouseButton1Click:Connect(function()
+    if not draggedObject then return end
+    if not dragTouchingHull and not activeWelds[draggedObject] then return end
+
+    if activeWelds[draggedObject] then
+        unweld(draggedObject)
+        weldButton.Text = "Weld"
+        weldButton.Visible = false
+        
+        -- If we unwelded, we should be able to drag it again
+        if dragging then
+            -- Reset dragging for this unwelded part
+            if draggedObject.Name == "HumanoidRootPart" or draggedObject.Name == "Torso" then
+                bodyPos = Instance.new("BodyPosition")
+                bodyPos.MaxForce = Vector3.new(1e5,1e5,1e5)
+                bodyPos.P = DRAG_FORCE * 50
+                bodyPos.D = 10
+                bodyPos.Parent = draggedObject
+            end
+        end
+    else
+        weldToHull(draggedObject)
+        weldButton.Text = "Unweld"
+        weldButton.Visible = true
+        
+        -- Stop physical dragging if welded
+        if bodyPos then
+            bodyPos:Destroy()
+            bodyPos = nil
+        end
+    end
+end)
+
+--------------------------------------------------
+-- Start Drag
+--------------------------------------------------
+local function startDrag(target)
+    if not target or dragging then return end
+
+    local character, humanoid, root = getCharacterFromPart(target)
+    if character then
+        if not isRagdolled(humanoid, character) then return end
+        target = root
+    end
+
+    if target.Anchored then return end
+    
+    -- Allow dragging welded assemblies too
+    if isAssemblyWelded(target) and not activeWelds[target] then return end
+
+    dragging = true
+    draggedObject = target
+
+    createHighlight(target)
+    createBillboard(target)
+    
+    -- Store connections for cleanup
+    if partConnections[target] then
+        for _, conn in pairs(partConnections[target]) do
+            conn:Disconnect()
+        end
+    end
+    partConnections[target] = hookTouchDetection(target)
+
+    -- Check if it's already welded
+    if activeWelds[target] then
+        dragTouchingHull = false
+        weldButton.Visible = true
+        weldButton.Text = "Unweld"
+        return
+    end
+
+    dragTouchingHull = false
+    weldButton.Visible = false
+    
+    -- Only unweld if we're touching the hull and want to reweld
+    -- (Don't automatically unweld on start drag)
+
+    if target.Name == "HumanoidRootPart" or target.Name == "Torso" then
+        bodyPos = Instance.new("BodyPosition")
+        bodyPos.MaxForce = Vector3.new(1e5,1e5,1e5)
+        bodyPos.P = DRAG_FORCE * 50
+        bodyPos.D = 10
+        bodyPos.Parent = target
+    end
+end
+
+--------------------------------------------------
+-- Stop Drag
+--------------------------------------------------
+local function stopDrag()
+    weldButton.Visible = false
+
+    if draggedObject then
+        removeBillboard(draggedObject)
+        removeHighlight(draggedObject)
+        
+        -- Clean up connections
+        if partConnections[draggedObject] then
+            for _, conn in pairs(partConnections[draggedObject]) do
+                conn:Disconnect()
+            end
+            partConnections[draggedObject] = nil
+        end
+    end
+
+    if bodyPos then
+        bodyPos:Destroy()
+        bodyPos = nil
+    end
+
+    dragging = false
+    draggedObject = nil
+    dragTouchingHull = false
+end
+
+mouse.Button1Down:Connect(function()
+    if mouse.Target and mouse.Target:IsA("BasePart") then
+        startDrag(mouse.Target)
+    end
+end)
+
+mouse.Button1Up:Connect(stopDrag)
+
+--------------------------------------------------
+-- Drag Loop (NO movement if welded)
+--------------------------------------------------
+runService.RenderStepped:Connect(function()
+    if dragging and draggedObject then
+        if activeWelds[draggedObject] then
+            -- Don't move welded objects
+            return
+        end
+        
+        local goalPos = cam.CFrame.Position +
+            cam.CFrame.LookVector *
+            math.clamp((mouse.Hit.p - cam.CFrame.Position).Magnitude, 5, MAX_DISTANCE)
+
+        if bodyPos then
+            bodyPos.Position = goalPos
+        else
+            draggedObject.AssemblyLinearVelocity =
+                (goalPos - draggedObject.Position) * (DRAG_FORCE/100)
+        end
+    end
+end)
+
+-- Also clean up on mouse leave
+mouse.Move:Connect(function()
+    if dragging and draggedObject and activeWelds[draggedObject] then
+        -- Keep weld button visible even if not touching hull for welded items
+        weldButton.Visible = true
+        weldButton.Text = "Unweld"
+    elseif dragging and dragTouchingHull then
+        weldButton.Visible = true
+        weldButton.Text = activeWelds[draggedObject] and "Unweld" or "Weld"
+    end
+end)
+
+script.Destroying:Connect(function()
+    removeAllHighlights()
+    for part, conns in pairs(partConnections) do
+        for _, conn in pairs(conns) do
+            conn:Disconnect()
+        end
+    end
+end)
