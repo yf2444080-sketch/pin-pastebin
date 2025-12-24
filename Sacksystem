@@ -1,0 +1,746 @@
+-- Storage Tool with Center Dot System & PlayStation Support
+-- Place this in a LocalScript inside a Tool
+
+local Tool = script.Parent
+local Handle = Tool:WaitForChild("Handle")
+
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local Debris = game:GetService("Debris")
+local ContextActionService = game:GetService("ContextActionService")
+
+-- Player variables
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+local camera = workspace.CurrentCamera
+
+-- Tool settings
+local MAX_STORAGE = 10
+local storedParts = {} -- Store part information
+local currentPart = nil
+
+-- UI Setup
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "StorageToolUI"
+screenGui.ResetOnSpawn = false
+screenGui.DisplayOrder = 10
+
+---------------------------------------------------------------------
+-- CENTER DOT SYSTEM
+---------------------------------------------------------------------
+local centerDot = Instance.new("Frame")
+centerDot.Name = "CenterDot"
+centerDot.Size = UDim2.new(0, 6, 0, 6)
+centerDot.Position = UDim2.new(0.5, 0, 0.5, 0)
+centerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+centerDot.BackgroundColor3 = Color3.new(1, 1, 1)
+centerDot.BackgroundTransparency = 0.2
+centerDot.BorderSizePixel = 0
+centerDot.ZIndex = 100
+centerDot.Visible = true
+
+local centerDotCorner = Instance.new("UICorner")
+centerDotCorner.CornerRadius = UDim.new(1, 0)
+centerDotCorner.Parent = centerDot
+
+-- Center dot glow effect
+local centerGlow = Instance.new("Frame")
+centerGlow.Name = "CenterGlow"
+centerGlow.Size = UDim2.new(0, 10, 0, 10)
+centerGlow.Position = UDim2.new(0.5, 0, 0.5, 0)
+centerGlow.AnchorPoint = Vector2.new(0.5, 0.5)
+centerGlow.BackgroundColor3 = Color3.new(1, 1, 1)
+centerGlow.BackgroundTransparency = 0.7
+centerGlow.BorderSizePixel = 0
+centerGlow.ZIndex = 99
+centerGlow.Visible = true
+
+local centerGlowCorner = Instance.new("UICorner")
+centerGlowCorner.CornerRadius = UDim.new(1, 0)
+centerGlowCorner.Parent = centerGlow
+
+-- Animate the center dot glow
+local function startDotAnimation()
+    if not centerDot.Visible then return end
+    
+    task.spawn(function()
+        while centerDot.Visible do
+            for i = 1, 0, -0.05 do
+                if not centerDot.Visible then break end
+                centerGlow.BackgroundTransparency = 0.7 + (0.3 * i)
+                centerGlow.Size = UDim2.new(0, 10 + (5 * i), 0, 10 + (5 * i))
+                task.wait(0.03)
+            end
+            for i = 0, 1, 0.05 do
+                if not centerDot.Visible then break end
+                centerGlow.BackgroundTransparency = 0.7 + (0.3 * i)
+                centerGlow.Size = UDim2.new(0, 10 + (5 * i), 0, 10 + (5 * i))
+                task.wait(0.03)
+            end
+        end
+    end)
+end
+
+-- Start the dot animation
+startDotAnimation()
+
+centerGlow.Parent = screenGui
+centerDot.Parent = screenGui
+
+---------------------------------------------------------------------
+-- STORAGE COUNTER UI (ELEGANT DESIGN)
+---------------------------------------------------------------------
+local storageCounter = Instance.new("TextLabel")
+storageCounter.Name = "StorageCounter"
+storageCounter.Size = UDim2.new(0, 120, 0, 40)
+storageCounter.AnchorPoint = Vector2.new(0.5, 0)
+storageCounter.Position = UDim2.new(0.5, 0, 0.05, 0)
+storageCounter.BackgroundTransparency = 0.8
+storageCounter.BackgroundColor3 = Color3.new(0.1, 0.1, 0.1)
+storageCounter.Text = "0/" .. MAX_STORAGE
+storageCounter.TextColor3 = Color3.new(1, 1, 1)
+storageCounter.TextSize = 20
+storageCounter.Font = Enum.Font.Antique
+storageCounter.TextStrokeColor3 = Color3.new(0, 0, 0)
+storageCounter.TextStrokeTransparency = 0
+storageCounter.Visible = false
+storageCounter.ZIndex = 101
+
+local storageCounterCorner = Instance.new("UICorner")
+storageCounterCorner.CornerRadius = UDim.new(0, 8)
+storageCounterCorner.Parent = storageCounter
+
+local storageCounterStroke = Instance.new("UIStroke")
+storageCounterStroke.Color = Color3.new(0, 0, 0)
+storageCounterStroke.Thickness = 1.2
+storageCounterStroke.Parent = storageCounter
+
+local storageIcon = Instance.new("ImageLabel")
+storageIcon.Name = "StorageIcon"
+storageIcon.Size = UDim2.new(0, 24, 0, 24)
+storageIcon.Position = UDim2.new(0.2, 0, 0.5, -12)
+storageIcon.AnchorPoint = Vector2.new(0.5, 0.5)
+storageIcon.BackgroundTransparency = 1
+storageIcon.Image = "rbxassetid://6031068436" -- Package icon
+storageIcon.ImageColor3 = Color3.new(1, 1, 1)
+storageIcon.ScaleType = Enum.ScaleType.Fit
+storageIcon.ZIndex = 102
+storageIcon.Parent = storageCounter
+
+storageCounter.Parent = screenGui
+
+---------------------------------------------------------------------
+-- STORE BUTTON (ELEGANT DESIGN)
+---------------------------------------------------------------------
+local storeButton = Instance.new("TextButton")
+storeButton.Name = "StoreButton"
+storeButton.Size = UDim2.new(0, 70, 0, 70)
+storeButton.AnchorPoint = Vector2.new(0.5, 0.5)
+storeButton.Position = UDim2.new(0.45, 0, 0.5, 0)
+storeButton.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+storeButton.BackgroundTransparency = 0.3
+storeButton.Text = "STORE"
+storeButton.TextColor3 = Color3.new(1, 1, 1)
+storeButton.TextSize = 14
+storeButton.Font = Enum.Font.Antique
+storeButton.TextStrokeColor3 = Color3.new(0, 0, 0)
+storeButton.TextStrokeTransparency = 0
+storeButton.Visible = false
+storeButton.ZIndex = 102
+
+local storeButtonCorner = Instance.new("UICorner")
+storeButtonCorner.CornerRadius = UDim.new(1, 0)
+storeButtonCorner.Parent = storeButton
+
+local storeButtonStroke = Instance.new("UIStroke")
+storeButtonStroke.Color = Color3.new(0, 0, 0) -- Black stroke
+storeButtonStroke.Thickness = 1.2 -- Low thickness
+storeButtonStroke.Transparency = 0
+storeButtonStroke.Parent = storeButton
+
+storeButton.Parent = screenGui
+
+---------------------------------------------------------------------
+-- UNSTORE BUTTON (ELEGANT DESIGN)
+---------------------------------------------------------------------
+local unstoreButton = Instance.new("TextButton")
+unstoreButton.Name = "UnstoreButton"
+unstoreButton.Size = UDim2.new(0, 70, 0, 70)
+unstoreButton.AnchorPoint = Vector2.new(0.5, 0.5)
+unstoreButton.Position = UDim2.new(0.55, 0, 0.5, 0)
+unstoreButton.BackgroundColor3 = Color3.new(0.15, 0.15, 0.15)
+unstoreButton.BackgroundTransparency = 0.3
+unstoreButton.Text = "UNSTORE"
+unstoreButton.TextColor3 = Color3.new(1, 1, 1)
+unstoreButton.TextSize = 14
+unstoreButton.Font = Enum.Font.Antique
+unstoreButton.TextStrokeColor3 = Color3.new(0, 0, 0)
+unstoreButton.TextStrokeTransparency = 0
+unstoreButton.Visible = false
+unstoreButton.ZIndex = 102
+
+local unstoreButtonCorner = Instance.new("UICorner")
+unstoreButtonCorner.CornerRadius = UDim.new(1, 0)
+unstoreButtonCorner.Parent = unstoreButton
+
+local unstoreButtonStroke = Instance.new("UIStroke")
+unstoreButtonStroke.Color = Color3.new(0, 0, 0) -- Black stroke
+unstoreButtonStroke.Thickness = 1.2 -- Low thickness
+unstoreButtonStroke.Transparency = 0
+unstoreButtonStroke.Parent = unstoreButton
+
+unstoreButton.Parent = screenGui
+
+-- Add screenGui to player's GUI
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+-- Highlight variable
+local currentHighlight = nil
+
+-- PlayStation controller state
+local isPlayStation = false
+
+-- Function to check if part has welds or is welded to something
+local function hasWelds(part)
+    -- Check if part itself has Weld or WeldConstraint
+    for _, descendant in ipairs(part:GetDescendants()) do
+        if descendant:IsA("Weld") or descendant:IsA("WeldConstraint") then
+            return true
+        end
+    end
+    
+    -- Check if part is welded to something else
+    local connectedParts = {}
+    
+    -- Check WeldConstraints
+    for _, constraint in ipairs(workspace:GetDescendants()) do
+        if constraint:IsA("WeldConstraint") then
+            if constraint.Part0 == part or constraint.Part1 == part then
+                return true
+            end
+        elseif constraint:IsA("Weld") then
+            if constraint.Part0 == part or constraint.Part1 == part then
+                return true
+            end
+        end
+    end
+    
+    return false
+end
+
+-- Function to check if part is part of a model (has other parts connected)
+local function isConnectedToModel(part)
+    local model = part:FindFirstAncestorOfClass("Model")
+    if model then
+        -- Count how many parts are in the model
+        local partCount = 0
+        for _, child in ipairs(model:GetDescendants()) do
+            if child:IsA("BasePart") then
+                partCount = partCount + 1
+            end
+        end
+        -- If more than 1 part, it's part of a multi-part model
+        return partCount > 1
+    end
+    return false
+end
+
+-- Function to create highlight on part
+local function createHighlight(part)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    
+    if not part then return end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "StorageHighlight"
+    highlight.FillColor = Color3.new(1, 1, 1)
+    highlight.FillTransparency = 1
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.OutlineTransparency = 0
+    highlight.Adornee = part
+    highlight.Parent = part
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    
+    currentHighlight = highlight
+    return highlight
+end
+
+-- Raycast from center of screen
+local function getPartUnderDot()
+    local viewportSize = camera.ViewportSize
+    local center = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+    
+    local ray = camera:ViewportPointToRay(center.X, center.Y)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Blacklist
+    params.FilterDescendantsInstances = {player.Character}
+    params.IgnoreWater = true
+    
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 30, params)
+    
+    if result then
+        local part = result.Instance
+        
+        -- Check if it's a BasePart
+        if part:IsA("BasePart") then
+            -- Check all restrictions
+            if part.Anchored then
+                return nil -- Anchored parts not allowed
+            end
+            
+            if hasWelds(part) then
+                return nil -- Parts with welds not allowed
+            end
+            
+            if isConnectedToModel(part) then
+                return nil -- Parts in models not allowed
+            end
+            
+            return part
+        end
+    end
+    
+    return nil
+end
+
+-- Check if part is already stored
+local function isPartStored(part)
+    for _, storedData in ipairs(storedParts) do
+        if storedData.part == part then
+            return true
+        end
+    end
+    return false
+end
+
+-- Update storage counter
+local function updateStorageCounter()
+    storageCounter.Text = #storedParts .. "/" .. MAX_STORAGE
+    
+    -- Update icon color based on storage level
+    if #storedParts == 0 then
+        storageIcon.ImageColor3 = Color3.new(0.7, 0.7, 0.7)
+    elseif #storedParts < MAX_STORAGE / 2 then
+        storageIcon.ImageColor3 = Color3.fromRGB(100, 200, 100)
+    elseif #storedParts < MAX_STORAGE then
+        storageIcon.ImageColor3 = Color3.fromRGB(255, 200, 100)
+    else
+        storageIcon.ImageColor3 = Color3.fromRGB(255, 100, 100)
+    end
+    
+    -- Show unstore button if we have stored parts (only on non-PlayStation)
+    if not isPlayStation then
+        if #storedParts > 0 then
+            unstoreButton.Visible = true
+        else
+            unstoreButton.Visible = false
+        end
+    end
+end
+
+-- Smooth tween effect for dot
+local function playDotTween(color, sizeMultiplier)
+    local tween = TweenService:Create(
+        centerDot,
+        TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+        {
+            Size = UDim2.new(0, 6 * sizeMultiplier, 0, 6 * sizeMultiplier),
+            BackgroundColor3 = color
+        }
+    )
+    tween:Play()
+    
+    tween.Completed:Connect(function()
+        task.wait(0.1)
+        TweenService:Create(
+            centerDot,
+            TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {
+                Size = UDim2.new(0, 6, 0, 6),
+                BackgroundColor3 = Color3.new(1, 1, 1)
+            }
+        ):Play()
+    end)
+end
+
+-- Store a part
+local function storePart(part)
+    if not part then return false end
+    
+    -- Double-check all restrictions before storing
+    if part.Anchored then
+        print("Cannot store: Part is anchored")
+        return false
+    end
+    
+    if hasWelds(part) then
+        print("Cannot store: Part has welds")
+        return false
+    end
+    
+    if isConnectedToModel(part) then
+        print("Cannot store: Part is in a model")
+        return false
+    end
+    
+    if #storedParts >= MAX_STORAGE then 
+        print("Cannot store: Storage full")
+        return false 
+    end
+    
+    if isPartStored(part) then 
+        print("Cannot store: Already stored")
+        return false 
+    end
+    
+    -- Save part properties before storing it
+    local partData = {
+        part = part,
+        originalTransparency = part.Transparency,
+        originalColor = part.Color,
+        originalCanCollide = part.CanCollide,
+        originalPosition = part.Position,
+        originalCFrame = part.CFrame,
+        originalParent = part.Parent,
+        originalSize = part.Size,
+        originalMass = part.Mass
+    }
+    
+    -- Add to stored parts
+    table.insert(storedParts, partData)
+    
+    -- Make the part completely invisible and non-interactive
+    part.Transparency = 1
+    part.CanCollide = false
+    part.Anchored = true -- Anchor it so it doesn't fall
+    
+    -- Move it to a hidden location instead of changing transparency
+    part.CFrame = CFrame.new(0, -1000, 0) -- Move far underground
+    
+    -- Clear highlight
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    
+    -- Update UI
+    updateStorageCounter()
+    
+    -- Visual feedback
+    playDotTween(Color3.new(0, 1, 0), 1.5)
+    
+    -- Sound effect
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://337858783"
+    sound.Volume = 0.4
+    sound.Parent = camera
+    sound:Play()
+    Debris:AddItem(sound, 2)
+    
+    -- Hide store button
+    storeButton.Visible = false
+    
+    print("Stored part: " .. part.Name .. " (" .. #storedParts .. "/" .. MAX_STORAGE .. ")")
+    
+    return true
+end
+
+-- Unstore a part smoothly
+local function unstorePart()
+    if #storedParts == 0 then 
+        print("No parts to unstore!")
+        return nil 
+    end
+    
+    -- Get the last stored part data
+    local partData = table.remove(storedParts)
+    local part = partData.part
+    
+    if part then
+        -- Restore original parent if it was destroyed
+        if not part.Parent or part.Parent == nil then
+            if partData.originalParent and partData.originalParent.Parent then
+                part.Parent = partData.originalParent
+            else
+                part.Parent = workspace
+            end
+        end
+        
+        -- Position in front of player
+        local character = player.Character
+        if character then
+            local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+            if humanoidRootPart then
+                -- Calculate position in front of player
+                local lookVector = humanoidRootPart.CFrame.LookVector
+                local offset = lookVector * 4 + Vector3.new(0, 2, 0)
+                local spawnCFrame = CFrame.new(humanoidRootPart.Position + offset)
+                
+                part.CFrame = spawnCFrame
+                part.Anchored = false -- Unanchor it
+            end
+        else
+            -- Fallback position
+            part.CFrame = CFrame.new(0, 5, 0)
+            part.Anchored = false
+        end
+        
+        -- Restore original properties
+        part.Transparency = partData.originalTransparency
+        part.Color = partData.originalColor
+        part.CanCollide = partData.originalCanCollide
+        
+        -- Make sure it's visible
+        part.Transparency = partData.originalTransparency
+        
+        -- Update UI
+        updateStorageCounter()
+        
+        -- Visual feedback
+        playDotTween(Color3.new(1, 0.5, 0), 1.5)
+        
+        -- Sound effect
+        local sound = Instance.new("Sound")
+        sound.SoundId = "rbxassetid://138080933"
+        sound.Volume = 0.4
+        sound.Parent = camera
+        sound:Play()
+        Debris:AddItem(sound, 2)
+        
+        print("Unstored part: " .. part.Name .. " (" .. #storedParts .. "/" .. MAX_STORAGE .. ")")
+        
+        return part
+    else
+        print("Error: Part no longer exists!")
+        return nil
+    end
+end
+
+-- Clear UI (only clears highlight and store button, NOT unstore button)
+local function clearUI()
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    
+    storeButton.Visible = false
+    -- DON'T hide unstore button here - it's handled by updateStorageCounter
+    
+    currentPart = nil
+end
+
+-- PlayStation controller handlers
+local function handleStoreAction(actionName, inputState, inputObject)
+    if inputState == Enum.UserInputState.Begin then
+        if currentPart and #storedParts < MAX_STORAGE then
+            storePart(currentPart)
+        end
+    end
+end
+
+local function handleUnstoreAction(actionName, inputState, inputObject)
+    if inputState == Enum.UserInputState.Begin then
+        if #storedParts > 0 then
+            unstorePart()
+        end
+    end
+end
+
+-- Setup PlayStation controls
+local function setupPlayStationControls()
+    if UserInputService.GamepadEnabled then
+        isPlayStation = true
+        
+        -- Bind PlayStation controller buttons
+        ContextActionService:BindAction("StoreAction", handleStoreAction, false, Enum.KeyCode.ButtonY) -- Triangle
+        ContextActionService:BindAction("UnstoreAction", handleUnstoreAction, false, Enum.KeyCode.ButtonX) -- Square
+        
+        -- Hide mouse-based buttons on PlayStation
+        storeButton.Visible = false
+        unstoreButton.Visible = false
+        
+        print("PlayStation controls enabled: Triangle=Store, Square=Unstore")
+    else
+        isPlayStation = false
+        print("Mouse/Touch controls enabled")
+    end
+end
+
+-- Button click events (for non-PlayStation)
+storeButton.MouseButton1Click:Connect(function()
+    if currentPart then
+        storePart(currentPart)
+        currentPart = nil
+    end
+end)
+
+unstoreButton.MouseButton1Click:Connect(function()
+    unstorePart()
+end)
+
+-- Tool equipped/unequipped events
+Tool.Equipped:Connect(function()
+    -- Show UI when tool is equipped
+    storageCounter.Visible = true
+    centerDot.Visible = true
+    centerGlow.Visible = true
+    updateStorageCounter() -- This will show/hide unstore button based on stored parts
+    
+    -- Start dot animation
+    startDotAnimation()
+    
+    -- Setup PlayStation controls
+    setupPlayStationControls()
+    
+    -- Scale UI for different devices
+    local function scaleUI()
+        local viewportSize = camera.ViewportSize
+        
+        if viewportSize.X < 800 then
+            -- Mobile or small screen
+            storageCounter.Size = UDim2.new(0, 100, 0, 35)
+            storageCounter.TextSize = 18
+            storageIcon.Size = UDim2.new(0, 20, 0, 20)
+            storageIcon.Position = UDim2.new(0.2, 0, 0.5, -10)
+            
+            if not isPlayStation then
+                storeButton.Size = UDim2.new(0, 60, 0, 60)
+                unstoreButton.Size = UDim2.new(0, 60, 0, 60)
+                storeButton.TextSize = 12
+                unstoreButton.TextSize = 12
+            end
+        elseif viewportSize.X < 1200 then
+            -- Tablet
+            storageCounter.Size = UDim2.new(0, 110, 0, 38)
+            storageCounter.TextSize = 19
+            storageIcon.Size = UDim2.new(0, 22, 0, 22)
+            storageIcon.Position = UDim2.new(0.2, 0, 0.5, -11)
+            
+            if not isPlayStation then
+                storeButton.Size = UDim2.new(0, 65, 0, 65)
+                unstoreButton.Size = UDim2.new(0, 65, 0, 65)
+                storeButton.TextSize = 13
+                unstoreButton.TextSize = 13
+            end
+        else
+            -- Desktop
+            storageCounter.Size = UDim2.new(0, 120, 0, 40)
+            storageCounter.TextSize = 20
+            storageIcon.Size = UDim2.new(0, 24, 0, 24)
+            storageIcon.Position = UDim2.new(0.2, 0, 0.5, -12)
+            
+            if not isPlayStation then
+                storeButton.Size = UDim2.new(0, 70, 0, 70)
+                unstoreButton.Size = UDim2.new(0, 70, 0, 70)
+                storeButton.TextSize = 14
+                unstoreButton.TextSize = 14
+            end
+        end
+    end
+    
+    scaleUI()
+    camera:GetPropertyChangedSignal("ViewportSize"):Connect(scaleUI)
+end)
+
+Tool.Unequipped:Connect(function()
+    -- Hide UI when tool is unequipped
+    storageCounter.Visible = false
+    centerDot.Visible = false
+    centerGlow.Visible = false
+    
+    -- Unbind PlayStation controls
+    if isPlayStation then
+        ContextActionService:UnbindAction("StoreAction")
+        ContextActionService:UnbindAction("UnstoreAction")
+    end
+    
+    clearUI()
+    unstoreButton.Visible = false -- Hide unstore button when unequipped
+end)
+
+-- Main update loop
+local connection
+Tool.Equipped:Connect(function()
+    connection = RunService.RenderStepped:Connect(function()
+        local partUnderDot = getPartUnderDot()
+        
+        if partUnderDot then
+            -- Don't highlight already stored parts
+            if not isPartStored(partUnderDot) then
+                -- Double-check all restrictions before highlighting
+                if not partUnderDot.Anchored and not hasWelds(partUnderDot) and not isConnectedToModel(partUnderDot) then
+                    -- Create highlight on the part
+                    createHighlight(partUnderDot)
+                    currentPart = partUnderDot
+                    
+                    -- Show store button if not at max capacity
+                    if #storedParts < MAX_STORAGE then
+                        storeButton.Visible = true
+                    else
+                        storeButton.Visible = false
+                    end
+                else
+                    -- Part doesn't meet requirements, don't highlight
+                    if currentHighlight then
+                        currentHighlight:Destroy()
+                        currentHighlight = nil
+                    end
+                    storeButton.Visible = false
+                    currentPart = nil
+                end
+            else
+                -- Part is already stored, don't highlight or show store button
+                if currentHighlight then
+                    currentHighlight:Destroy()
+                    currentHighlight = nil
+                end
+                storeButton.Visible = false
+                currentPart = nil
+            end
+        else
+            -- Only clear highlight and store button, not unstore button
+            if currentHighlight then
+                currentHighlight:Destroy()
+                currentHighlight = nil
+            end
+            
+            storeButton.Visible = false
+            -- Don't hide unstore button here - keep it visible if we have stored parts
+            
+            currentPart = nil
+        end
+    end)
+end)
+
+Tool.Unequipped:Connect(function()
+    if connection then
+        connection:Disconnect()
+        connection = nil
+    end
+    clearUI()
+    unstoreButton.Visible = false -- Hide unstore button when unequipped
+end)
+
+-- Clean up when player leaves
+Players.PlayerRemoving:Connect(function(leavingPlayer)
+    if leavingPlayer == player then
+        screenGui:Destroy()
+        if isPlayStation then
+            ContextActionService:UnbindAction("StoreAction")
+            ContextActionService:UnbindAction("UnstoreAction")
+        end
+    end
+end)
+
+print("Storage Tool Loaded Successfully!")
+print("Controls:")
+print("  - Mouse/Touch: Store/Unstore buttons appear on screen")
+print("  - PlayStation: Triangle = Store, Square = Unstore")
+print("  - Max Storage: " .. MAX_STORAGE)
+print("  - Cannot store: Anchored parts, parts with welds, parts in models")
