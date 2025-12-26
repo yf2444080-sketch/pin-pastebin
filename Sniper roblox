@@ -1,0 +1,52 @@
+
+local tool = script.Parent
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local Camera = workspace.CurrentCamera
+local RunService = game:GetService("RunService")
+local uis = game:GetService("UserInputService")
+
+local ViewModel
+
+local equipped = false
+
+tool.Equipped:Connect(function()
+    equipped = true
+    game.ReplicatedStorage.ViewModelRifle:Clone().Parent = Camera
+end)
+
+tool.Unequipped:Connect(function()
+    equipped = false
+    ViewModel = Camera.ViewModelRifle
+    ViewModel:Destroy()
+end)
+
+local swayAmount = .6
+local swayCF = CFrame.new()
+local lastCameraCF = CFrame.new()
+
+RunService.RenderStepped:Connect(function()
+    if player.Character.Humanoid.Health <= 0 then
+        if Camera:FindFirstChild("ViewModelRifle") ~= nil then
+            workspace.Camera.ViewModelRifle:Destroy()
+        end
+    end
+    
+    if equipped == true then
+        if Camera:FindFirstChild("ViewModelRifle") ~= nil then
+            Camera.ViewModelRifle:SetPrimaryPartCFrame(Camera.CFrame)
+            for i, v in pairs(Camera.ViewModelRifle:GetChildren()) do
+                if v:IsA("BasePart") then
+                    v.CanCollide = false
+                end
+            end
+            
+            local rot = Camera.CFrame:ToObjectSpace(lastCameraCF)
+            local X,Y,Z = rot:ToOrientation()
+            swayCF = swayCF:Lerp(CFrame.Angles(math.sin(X) * swayAmount, math.sin(Y) * swayAmount, 0), .1)
+            lastCameraCF = Camera.CFrame
+            
+            Camera.ViewModelRifle:SetPrimaryPartCFrame(Camera.CFrame * swayCF)
+        end
+    end
+end)
